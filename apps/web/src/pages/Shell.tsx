@@ -2838,13 +2838,13 @@ export function ShellPage() {
                               position: { x: event.clientX, y: event.clientY },
                             });
                           }}
-                          className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-[10px] text-start ${
+                          className={`flex w-full items-center gap-3 rounded-xl border-s-2 px-2.5 py-2 text-start ${
                             item.kind === "bot" ? "cursor-grab active:cursor-grabbing" : ""
                           } ${
                             (item.kind === "bot" && !inGroup && active?.id === item.chat.id) ||
                             (item.kind === "group" && inGroup && activeGroup?.id === item.chat.id)
-                              ? "bg-sidebar-accent"
-                              : "hover:bg-sidebar-accent"
+                              ? "border-s-primary bg-sidebar-accent"
+                              : "border-s-transparent hover:bg-sidebar-accent"
                           }`}
                           style={{
                             opacity:
@@ -2874,14 +2874,14 @@ export function ShellPage() {
                                 <span
                                   dir="auto"
                                   data-roster-bot-name={item.kind === "bot" ? "" : undefined}
-                                  className={`truncate text-[14px] text-foreground ${
+                                  className={`truncate text-name text-foreground ${
                                     item.chat.unread ? "font-semibold" : "font-medium"
                                   }`}
                                 >
                                   {item.chat.name}
                                 </span>
                                 {item.kind === "bot" && item.chat.title ? (
-                                  <span className="max-w-[130px] shrink-0 truncate rounded-md border border-border bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+                                  <span className="max-w-[130px] shrink-0 truncate rounded-md border border-border bg-muted px-2 py-0.5 text-meta font-normal text-muted-foreground">
                                     {item.chat.title}
                                   </span>
                                 ) : null}
@@ -2892,7 +2892,7 @@ export function ShellPage() {
                                 ) : null}
                               </div>
                               <div className="flex shrink-0 items-center gap-1.5">
-                                <span className="text-[11.5px] text-muted-foreground/60 tabular-nums">
+                                <span className="text-meta text-muted-foreground/60 tabular-nums">
                                   {formatRosterTime(item.chat.updatedAt)}
                                 </span>
                                 {item.chat.unread ? (
@@ -2905,7 +2905,7 @@ export function ShellPage() {
                             </div>
                             <div
                               dir="auto"
-                              className={`mt-0.5 truncate text-[12.5px] ${
+                              className={`mt-0.5 truncate text-secondary ${
                                 item.chat.unread
                                   ? "font-medium text-foreground/75"
                                   : "text-muted-foreground/60"
@@ -3176,7 +3176,7 @@ export function ShellPage() {
                 />
               ) : null}
               <span className="min-w-0">
-                <span className="block truncate text-[16px] font-medium text-foreground" dir="auto">
+                <span className="block truncate text-heading font-medium text-foreground" dir="auto">
                   {inGroup
                     ? (activeGroup?.name ?? activeSnapshot?.groupName ?? t`Group`)
                     : (active?.name ?? t`Select a bot`)}
@@ -5042,7 +5042,7 @@ const Composer = memo(function Composer({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative z-30 m-0 min-w-0 border-0 px-3 pb-4 pt-3 md:px-6 md:pb-6 ${
+      className={`relative z-30 m-0 min-w-0 border-0 px-3 pb-3 pt-2 md:px-6 md:pb-4 ${
         draggingFiles ? "rounded-[14px] ring-2 ring-inset ring-ring" : ""
       }`}
     >
@@ -5051,7 +5051,7 @@ const Composer = memo(function Composer({
           ref={runErrorRef}
           role="alert"
           data-testid="composer-error"
-          className="mb-3 flex items-center gap-2 rounded-[14px] border border-destructive/40 bg-destructive/10 px-4 py-2 text-[13px] text-destructive"
+          className="mb-3 flex items-center gap-2 rounded-[14px] border border-destructive/40 bg-destructive/10 px-4 py-2 text-body text-destructive"
         >
           <span className="min-w-0 flex-1">{sendError ?? runError}</span>
           <button
@@ -5071,7 +5071,7 @@ const Composer = memo(function Composer({
       {replyTarget ? (
         <div
           data-testid="reply-chip"
-          className="mb-2 flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-[13px] text-foreground/75"
+          className="mb-2 flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-body text-foreground/75"
         >
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {replyQuote
@@ -5089,7 +5089,7 @@ const Composer = memo(function Composer({
         </div>
       ) : null}
       {attachmentNotice ? (
-        <div className="mb-3 rounded-[14px] border border-warning/40 bg-warning/10 px-4 py-2 text-[13px] text-warning">
+        <div className="mb-3 rounded-[14px] border border-warning/40 bg-warning/10 px-4 py-2 text-body text-warning">
           {attachmentNotice}
         </div>
       ) : null}
@@ -5098,7 +5098,7 @@ const Composer = memo(function Composer({
           {pendingAttachments.map((attachment) => (
             <div
               key={attachment.id}
-              className="flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-[13px] text-foreground/75"
+              className="flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-body text-foreground/75"
             >
               {attachment.previewUrl ? (
                 <img
@@ -5152,11 +5152,11 @@ const Composer = memo(function Composer({
               >
                 <MentionOptionIcon mention={mention} />
                 <span className="min-w-0">
-                  <span dir="auto" className="block text-[14px] text-foreground">
+                  <span dir="auto" className="block text-name text-foreground">
                     @{mention.name}
                   </span>
                   {mention.subtitle ? (
-                    <span dir="auto" className="block truncate text-[12.5px] text-muted-foreground">
+                    <span dir="auto" className="block truncate text-secondary text-muted-foreground">
                       {mention.subtitle}
                     </span>
                   ) : null}
@@ -5181,10 +5181,10 @@ const Composer = memo(function Composer({
             >
               <Box size={16} strokeWidth={1.7} className="mt-0.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0">
-                <span dir="auto" className="block text-[14px] text-foreground">
+                <span dir="auto" className="block text-name text-foreground">
                   {skill.name}
                 </span>
-                <span dir="auto" className="block truncate text-[12.5px] text-muted-foreground">
+                <span dir="auto" className="block truncate text-secondary text-muted-foreground">
                   {truncateSlashDescription(skill.description)}
                 </span>
               </span>
@@ -5201,7 +5201,7 @@ const Composer = memo(function Composer({
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-start hover:bg-accent"
               >
                 <Settings size={16} strokeWidth={1.7} className="shrink-0 text-muted-foreground" />
-                <span className="text-[14px] text-foreground">{label}</span>
+                <span className="text-name text-foreground">{label}</span>
               </button>
             );
           })}
@@ -5209,7 +5209,7 @@ const Composer = memo(function Composer({
       ) : null}
       <div
         data-testid="composer-bar"
-        className="flex items-center gap-3.5 rounded-full border border-border bg-background py-[9px] pe-2.5 ps-3 transition-colors focus-within:border-ring"
+        className="flex items-center gap-3.5 rounded-full border border-border bg-background py-[6px] pe-2 ps-3 transition-colors focus-within:border-ring"
       >
         <input
           ref={fileInputRef}
@@ -5225,7 +5225,7 @@ const Composer = memo(function Composer({
           aria-label={t`Attach file`}
           disabled={disabled}
           onClick={() => fileInputRef.current?.click()}
-          className="size-8 shrink-0 rounded-full border border-border bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="size-7 shrink-0 rounded-full border border-border bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <Plus size={16} strokeWidth={2} />
         </Button>
@@ -5233,7 +5233,7 @@ const Composer = memo(function Composer({
           {selectedSkill ? (
             <span
               data-testid="skill-chip"
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-[13px] text-foreground"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-body text-foreground"
             >
               <Box size={13} strokeWidth={1.7} className="shrink-0 text-muted-foreground/70" />
               <span dir="auto" className="truncate">
@@ -5254,7 +5254,7 @@ const Composer = memo(function Composer({
               key={mentionChipKey(mention)}
               data-testid="mention-chip"
               data-mention-kind={mention.kind}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-[13px] text-foreground"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-body text-foreground"
             >
               <MentionChipIcon mention={mention} />
               <span dir="auto" className="truncate">
@@ -5340,7 +5340,7 @@ const Composer = memo(function Composer({
             autoComplete="off"
             dir="auto"
             rows={1}
-            className="max-h-32 min-h-[24px] min-w-[8rem] flex-1 resize-none overflow-y-auto bg-transparent py-0.5 text-[15.5px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-40"
+            className="max-h-32 min-h-5 min-w-[8rem] flex-1 resize-none overflow-y-auto bg-transparent py-0.5 text-name leading-5 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-40"
           />
         </div>
         {onVoice ? (
