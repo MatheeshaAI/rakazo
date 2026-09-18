@@ -91,16 +91,17 @@ export async function spawnBot(
           spawnKey: input.spawnKey,
         },
       },
-      include: { thread: true },
+      include: { threads: { orderBy: { createdAt: "asc" }, take: 1 } },
     });
     if (!existing) throw error;
-    if (!existing.thread) throw new Error(`Spawned bot ${existing.id} is missing its thread`);
+    const existingThread = existing.threads[0];
+    if (!existingThread) throw new Error(`Spawned bot ${existing.id} is missing its thread`);
     duplicate = true;
     created = {
       id: existing.id,
       name: existing.name,
       title: existing.title,
-      threadId: existing.thread.id,
+      threadId: existingThread.id,
     };
   }
 

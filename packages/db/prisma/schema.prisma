@@ -359,7 +359,7 @@ model Bot {
   children          Bot[]             @relation("BotChildren")
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
-  thread            Thread?
+  threads           Thread[]
   computerId        String?
   computer          Computer?         @relation(fields: [computerId], references: [id], onDelete: SetNull)
   computerSwitching Boolean           @default(false)
@@ -464,7 +464,7 @@ model Thread {
   id                          String     @id @default(cuid())
   spaceId                     String
   space                       Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  botId                       String?    @unique
+  botId                       String?
   bot                         Bot?       @relation(fields: [botId], references: [id], onDelete: Cascade)
   groupId                     String?    @unique
   group                       ChatGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -485,6 +485,7 @@ model Thread {
   routines                    Routine[]
 
   @@index([spaceId])
+  @@index([botId])
   @@map("threads")
 }
 

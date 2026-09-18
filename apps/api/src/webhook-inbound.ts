@@ -103,11 +103,14 @@ export async function loadWebhookTarget(
       spaceId: true,
       userId: true,
       webhookSecretId: true,
-      thread: { select: { id: true } },
+      // Inbound webhooks always land in the bot's oldest/canonical thread,
+      // regardless of how many web-UI "New Chat" threads exist for it.
+      threads: { orderBy: { createdAt: "asc" }, take: 1, select: { id: true } },
     },
   });
 
-  if (!bot?.thread || !bot.webhookSecretId) return null;
+  const inboundThread = bot?.threads[0];
+  if (!inboundThread || !bot.webhookSecretId) return null;
 
   const secret = await deps.prisma.secret.findUnique({
     where: { id: bot.webhookSecretId },
@@ -129,7 +132,7 @@ export async function loadWebhookTarget(
       userId: bot.userId,
       webhookSecretId: bot.webhookSecretId,
     },
-    threadId: bot.thread.id,
+    threadId: inboundThread.id,
     expected,
   };
 }

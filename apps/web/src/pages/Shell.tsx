@@ -214,6 +214,7 @@ import { SpaceSearchResults } from "./SpaceSearch";
 import { BotSettings, CreateBotForm } from "./shell/bot-panel";
 import { BotCreatePicker } from "./shell/bot-picker";
 import { CommandPalette, isCommandPaletteHotkey } from "./shell/command-palette";
+import { type BotThreadSummary, ThreadSwitcher } from "./shell/thread-switcher";
 import {
   ClearConversationDialog,
   DeleteBotDialog,
@@ -319,7 +320,7 @@ function readCollapsedSidebarSections(userId: string | null | undefined): Set<st
 
 export function ShellPage() {
   const { t } = useLingui();
-  const { botId, groupId } = useParams();
+  const { botId, groupId, threadId: routeThreadId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   // Mirrors searchParams for effects that only need to read it once on run,
@@ -452,6 +453,10 @@ export function ShellPage() {
   const mobileSidebarSwipeRef = useRef<{ startX: number; startY: number } | null>(null);
   const [draggedBotId, setDraggedBotId] = useState<string | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [threadSwitcherOpen, setThreadSwitcherOpen] = useState(false);
+  const [botThreads, setBotThreads] = useState<BotThreadSummary[]>([]);
+  const [botThreadsLoading, setBotThreadsLoading] = useState(false);
+  const [creatingThread, setCreatingThread] = useState(false);
   const [botsSidebarCollapsed, setBotsSidebarCollapsed] = useState(false);
   const focusPromptAbortRef = useRef<AbortController | null>(null);
   const focusPromptBotIdRef = useRef<string | null>(null);
@@ -640,6 +645,11 @@ export function ShellPage() {
   routeGroupId.current = groupId;
   const activeBotId = useRef<string | undefined>(inGroup ? undefined : active?.id);
   activeBotId.current = inGroup ? undefined : active?.id;
+  // Which of the bot's several threads is open; falls back to its default
+  // (oldest) thread when the URL doesn't pin a specific one.
+  const activeThreadId = inGroup ? undefined : (routeThreadId ?? active?.threadId);
+  const activeThreadIdRef = useRef<string | undefined>(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const activeGroupId = useRef<string | undefined>(groupId);
   activeGroupId.current = groupId;
   const screenRequest = useRef(0);
@@ -866,7 +876,7 @@ export function ShellPage() {
     return snap;
   }
 
-  async function refreshThread(id: string, signal?: AbortSignal) {
+  async function refreshThread(id: string, threadId?: string, signal?: AbortSignal) {
     const scrollElement = messageScroll.current;
     const stickToEnd = !scrollElement || transcriptIsNearEnd(scrollElement);
     markOnce("rk:renderer:thread-request-start");
@@ -874,10 +884,14 @@ export function ShellPage() {
     const request = ++threadRefreshEpoch.current;
     // Apply threads.get as soon as it returns so stop/takeover status is not held behind
     // routines/skills/screen fetches (progress can advance the cursor meanwhile).
-    const snap = await rpc.threads.get({ botId: id }, signal ? { signal } : undefined);
+    const snap = await rpc.threads.get(
+      { botId: id, threadId },
+      signal ? { signal } : undefined,
+    );
     markOnce("rk:renderer:thread-response");
     if (
       activeBotId.current !== id ||
+      (threadId !== undefined && activeThreadIdRef.current !== threadId) ||
       epoch !== historyEpoch.current ||
       request !== threadRefreshEpoch.current
     ) {
@@ -961,7 +975,9 @@ export function ShellPage() {
     setLoadingOlder(true);
     try {
       const page = await rpc.threads.messages({
-        ...(targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! }),
+        ...(targetGroupId
+          ? { groupId: targetGroupId }
+          : { botId: targetBotId!, threadId: activeThreadId }),
         before,
       });
       if (
@@ -1178,18 +1194,29 @@ export function ShellPage() {
         const primed = bootstrappedThread.current;
         bootstrappedThread.current = null;
         // Pending search jumps load the around-page separately; avoid replacing it with latest.
-        return primed?.botId === active.id
+        // The bootstrap snapshot is always the bot's default thread, so it only
+        // applies when that's also the thread the URL is asking for.
+        return primed?.botId === active.id && primed.threadId === activeThreadId
           ? primed
           : pendingJump
-            ? rpc.threads.get({ botId: active.id }, { signal: threadSnapshotSignal(abort.signal) })
-            : refreshThread(active.id, threadSnapshotSignal(abort.signal));
+            ? rpc.threads.get(
+                { botId: active.id, threadId: activeThreadId },
+                { signal: threadSnapshotSignal(abort.signal) },
+              )
+            : refreshThread(active.id, activeThreadId, threadSnapshotSignal(abort.signal));
       },
       loadHead: () =>
-        rpc.threads.head({ botId: active.id }, { signal: threadSnapshotSignal(abort.signal) }),
-      refresh: () => refreshThread(active.id, threadSnapshotSignal(abort.signal)),
+        rpc.threads.head(
+          { botId: active.id, threadId: activeThreadId },
+          { signal: threadSnapshotSignal(abort.signal) },
+        ),
+      refresh: () => refreshThread(active.id, activeThreadId, threadSnapshotSignal(abort.signal)),
       currentSnapshot: () => snapshotRef.current,
       subscribe: (cursor) =>
-        rpc.threads.subscribe({ botId: active.id, cursor }, { signal: abort.signal }),
+        rpc.threads.subscribe(
+          { botId: active.id, threadId: activeThreadId, cursor },
+          { signal: abort.signal },
+        ),
       beforeEvent: (event) => {
         if (isRunTerminalEvent(event) && event.runId) {
           terminalRunReceipts.current.add(event.runId);
@@ -1241,7 +1268,7 @@ export function ShellPage() {
           event.type === "skill.teaching.stopped"
         ) {
           // waiting_input: reconcile ask cards if a stale post-send refresh raced SSE.
-          void refreshThread(active.id).catch(() => undefined);
+          void refreshThread(active.id, activeThreadId).catch(() => undefined);
         } else if (isComputerStatusEvent(event)) {
           void refreshComputerScreen(active.id).catch(() => undefined);
         }
@@ -1250,7 +1277,7 @@ export function ShellPage() {
     return () => {
       abort.abort();
     };
-  }, [active?.id, markBotReadIfVisible, notifyBrowserForEvent]);
+  }, [active?.id, activeThreadId, markBotReadIfVisible, notifyBrowserForEvent]);
 
   useEffect(() => {
     if (!groupId || !activeGroup) return;
@@ -1828,6 +1855,33 @@ export function ShellPage() {
   }, [active, groupId, inGroup, snapshot?.botId, snapshot?.groupId, snapshot?.threadId]);
 
   const openBot = useCallback((id: string) => navigate(`/app/${id}`), [navigate]);
+  const openBotThread = useCallback(
+    (id: string, threadId: string) => navigate(`/app/${id}/${threadId}`),
+    [navigate],
+  );
+  const loadBotThreads = useCallback(async (id: string) => {
+    setBotThreadsLoading(true);
+    try {
+      const list = await rpc.threads.listForBot({ botId: id });
+      if (activeBotId.current === id) setBotThreads(list);
+    } catch {
+      if (activeBotId.current === id) setBotThreads([]);
+    } finally {
+      if (activeBotId.current === id) setBotThreadsLoading(false);
+    }
+  }, []);
+  const createNewThread = useCallback(async () => {
+    const id = activeBotId.current;
+    if (!id || creatingThread) return;
+    setCreatingThread(true);
+    try {
+      const { threadId: newThreadId } = await rpc.threads.createForBot({ botId: id });
+      setThreadSwitcherOpen(false);
+      openBotThread(id, newThreadId);
+    } finally {
+      setCreatingThread(false);
+    }
+  }, [creatingThread, openBotThread]);
   const loadOlder = useCallback(() => loadOlderMessagesRef.current(), []);
   const jumpToReplyMessage = useCallback((messageId: string) => {
     const existing = document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
@@ -1850,7 +1904,7 @@ export function ShellPage() {
     const groupId = activeGroupId.current;
     if (!botId && !groupId) return;
     await rpc.threads.answer({
-      ...(groupId ? { groupId } : { botId: botId! }),
+      ...(groupId ? { groupId } : { botId: botId!, threadId: activeThreadIdRef.current }),
       runId: message.runId ?? "",
       messageId: message.id,
       answer: text,
@@ -1858,7 +1912,7 @@ export function ShellPage() {
     if (groupId && activeGroupId.current === groupId) {
       await refreshGroupThreadRef.current(groupId);
     } else if (botId && activeBotId.current === botId) {
-      await refreshThreadRef.current(botId);
+      await refreshThreadRef.current(botId, activeThreadIdRef.current);
     }
   }, []);
   const reactToMessage = useCallback(
@@ -1868,7 +1922,7 @@ export function ShellPage() {
       if (!botId && !groupId) return;
       try {
         await rpc.threads.react({
-          ...(groupId ? { groupId } : { botId: botId! }),
+          ...(groupId ? { groupId } : { botId: botId!, threadId: activeThreadIdRef.current }),
           messageId: message.id,
           reaction,
           clientNonce: newClientNonce(),
@@ -1982,7 +2036,7 @@ export function ShellPage() {
           if (groupTarget && activeGroupId.current === groupTarget) {
             await refreshGroupThreadRef.current(groupTarget);
           } else if (botTarget && activeBotId.current === botTarget) {
-            await refreshThreadRef.current(botTarget);
+            await refreshThreadRef.current(botTarget, activeThreadIdRef.current);
           }
           return;
         }
@@ -2014,6 +2068,7 @@ export function ShellPage() {
         } else if (botTarget) {
           const sent = await rpc.threads.send({
             botId: botTarget,
+            threadId: activeThreadIdRef.current,
             clientNonce,
             text: trimmed || undefined,
             mentions: plan.mentionPayload.length ? plan.mentionPayload : undefined,
@@ -2050,7 +2105,7 @@ export function ShellPage() {
         if (groupTarget && activeGroupId.current === groupTarget) setAttachmentNotice(null);
         if (botTarget && activeBotId.current === botTarget) setAttachmentNotice(null);
         if (groupTarget) await refreshGroupThreadRef.current(groupTarget);
-        else if (botTarget) await refreshThreadRef.current(botTarget);
+        else if (botTarget) await refreshThreadRef.current(botTarget, activeThreadIdRef.current);
       } catch (error) {
         if (reroutedToGroup && groupTarget) {
           setSendError(error instanceof Error ? error.message : t`Failed to send message`);
@@ -2077,8 +2132,8 @@ export function ShellPage() {
   const followUpMessage = useCallback(async (text: string) => {
     const id = activeBotId.current;
     if (!id) return;
-    await rpc.threads.followUp({ botId: id, text });
-    await refreshThreadRef.current(id);
+    await rpc.threads.followUp({ botId: id, threadId: activeThreadIdRef.current, text });
+    await refreshThreadRef.current(id, activeThreadIdRef.current);
   }, []);
   const stopRun = useCallback(async () => {
     if (sending) return;
@@ -2108,7 +2163,7 @@ export function ShellPage() {
       if (!botTarget) return;
       setSendError(null);
       try {
-        await rpc.threads.stop({ botId: botTarget });
+        await rpc.threads.stop({ botId: botTarget, threadId: activeThreadIdRef.current });
       } catch (error) {
         if (activeBotId.current === botTarget) {
           setSendError(error instanceof Error ? error.message : t`Failed to stop`);
@@ -2127,7 +2182,7 @@ export function ShellPage() {
           commitComputer({ ...currentComputer, busyBotName: null });
         }
       }
-      await refreshThreadRef.current(botTarget).catch(() => undefined);
+      await refreshThreadRef.current(botTarget, activeThreadIdRef.current).catch(() => undefined);
     } finally {
       setSending(false);
     }
@@ -2158,7 +2213,7 @@ export function ShellPage() {
     }
     const id = activeBotId.current;
     if (!id) return;
-    await refreshThreadRef.current(id);
+    await refreshThreadRef.current(id, activeThreadIdRef.current);
   }, []);
   // Teach chrome needs skills applied before this resolves — refreshThread only
   // kicks skills.list off in the background, so Stop teaching would never mount
@@ -2284,7 +2339,7 @@ export function ShellPage() {
     try {
       if (needsBoot) await rpc.computer.boot({ botId: active.id });
       if (takeControl) await rpc.computer.takeover({ botId: active.id });
-      await refreshThread(active.id);
+      await refreshThread(active.id, activeThreadId);
     } catch (error) {
       setComputerError(error instanceof Error ? error.message : t`Could not take control`);
       setComputerErrorFromScreen(false);
@@ -2305,7 +2360,7 @@ export function ShellPage() {
     void (async () => {
       // Refresh from the server first. A stale SSE "booting" snapshot used to
       // skip this effect, so an RPC takeover never showed "You have control".
-      const snap = await refreshThread(botId).catch(() => null);
+      const snap = await refreshThread(botId, activeThreadId).catch(() => null);
       if (cancelled || activeBotId.current !== botId) return;
       const state = snap?.computer?.state;
       const screen = state === "running" ? await refreshComputerScreen(botId) : null;
@@ -2524,7 +2579,7 @@ export function ShellPage() {
     >
       <ComputerUpdateProgress
         onCompleted={() => {
-          if (active) void refreshThread(active.id);
+          if (active) void refreshThread(active.id, activeThreadId);
         }}
       />
       {bootstrapMe !== undefined ? (
@@ -2855,7 +2910,7 @@ export function ShellPage() {
                             <BotAvatar
                               color={item.chat.color}
                               identity={item.chat.id}
-                              size={38}
+                              size={46}
                               status={item.chat.status}
                             />
                           ) : (
@@ -2865,7 +2920,7 @@ export function ShellPage() {
                                   ? (activeSnapshot.members ?? item.chat.members)
                                   : item.chat.members
                               }
-                              size={38}
+                              size={46}
                             />
                           )}
                           <div className="min-w-0 flex-1">
@@ -3186,6 +3241,40 @@ export function ShellPage() {
           </div>
           <div className="flex items-center gap-1">
             {!inGroup && active ? (
+              <Popover
+                open={threadSwitcherOpen}
+                onOpenChange={(open) => {
+                  setThreadSwitcherOpen(open);
+                  if (open) void loadBotThreads(active.id);
+                }}
+              >
+                <PopoverTrigger
+                  className="app-no-drag grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-accent"
+                  title={t`Conversations`}
+                  data-testid="thread-switcher-trigger"
+                >
+                  <Clock size={17} strokeWidth={1.7} aria-hidden="true" />
+                </PopoverTrigger>
+                {threadSwitcherOpen ? (
+                  <PopoverContent
+                    align="start"
+                    className="app-no-drag w-auto gap-0 overflow-hidden p-0 data-closed:animate-none"
+                  >
+                    <ThreadSwitcher
+                      threads={botThreads}
+                      activeThreadId={activeThreadId}
+                      loading={botThreadsLoading}
+                      onCreateThread={() => void createNewThread()}
+                      onSelectThread={(id) => {
+                        setThreadSwitcherOpen(false);
+                        openBotThread(active.id, id);
+                      }}
+                    />
+                  </PopoverContent>
+                ) : null}
+              </Popover>
+            ) : null}
+            {!inGroup && active ? (
               <button
                 type="button"
                 title={t`Agent computer`}
@@ -3194,7 +3283,7 @@ export function ShellPage() {
                   setPanel(next);
                   if (next === "computer" && active) {
                     // Refresh run/computer so Take control isn't stuck on a stale busyBotName.
-                    void refreshThread(active.id).catch(() => undefined);
+                    void refreshThread(active.id, activeThreadId).catch(() => undefined);
                   }
                 }}
                 data-active={panel === "computer" ? "" : undefined}
@@ -3346,7 +3435,7 @@ export function ShellPage() {
                       botId={active.id}
                       computer={computer}
                       onChanged={async () => {
-                        await refreshThread(active.id);
+                        await refreshThread(active.id, activeThreadId);
                       }}
                     />
                   ) : null}
@@ -3648,7 +3737,7 @@ export function ShellPage() {
                   ) {
                     return;
                   }
-                  await refreshThread(targetBotId).catch(() => undefined);
+                  await refreshThread(targetBotId, activeThreadId).catch(() => undefined);
                 }}
                 onTestRun={async () => {
                   if (routineRunPending.current) return;
@@ -3660,7 +3749,7 @@ export function ShellPage() {
                   setRoutineError(null);
                   try {
                     await rpc.routines.testRun({ routineId: targetRoutine.id });
-                    await refreshThread(targetBotId);
+                    await refreshThread(targetBotId, activeThreadId);
                   } catch (error) {
                     if (activeBotId.current === targetBotId) {
                       setRoutineError(
@@ -3986,7 +4075,13 @@ export function ShellPage() {
             onConfirm={async () => {
               await rpc.threads.clear(
                 clearTarget.kind === "bot"
-                  ? { botId: clearTarget.chat.id }
+                  ? {
+                      botId: clearTarget.chat.id,
+                      // Clears whichever thread is on screen when clearing the
+                      // open bot; otherwise falls back to its default thread.
+                      threadId:
+                        active?.id === clearTarget.chat.id ? activeThreadId : undefined,
+                    }
                   : { groupId: clearTarget.chat.id },
               );
               if (
@@ -4017,7 +4112,7 @@ export function ShellPage() {
               setDeleteRoutineTarget(null);
               setEditingRoutine((current) => (current?.id === target.id ? null : current));
               if (activeBotId.current !== target.botId) return;
-              await refreshThread(target.botId);
+              await refreshThread(target.botId, activeThreadId);
               if (activeBotId.current === target.botId) setPanel("computer");
             }}
           />
@@ -4196,7 +4291,7 @@ export function ShellPage() {
                     botId={active.id}
                     computer={computer}
                     onChanged={async () => {
-                      await refreshThread(active.id);
+                      await refreshThread(active.id, activeThreadId);
                     }}
                   />
                 ) : null}
@@ -5340,7 +5435,7 @@ const Composer = memo(function Composer({
             autoComplete="off"
             dir="auto"
             rows={1}
-            className="max-h-32 min-h-[24px] min-w-[8rem] flex-1 resize-none overflow-y-auto bg-transparent py-0.5 text-[15.5px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-40"
+            className="max-h-32 min-h-[24px] min-w-[8rem] flex-1 resize-none overflow-y-auto bg-transparent py-0.5 text-[14px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-40"
           />
         </div>
         {onVoice ? (
@@ -5738,7 +5833,7 @@ const MessageView = memo(function MessageView({
         <div className="flex w-fit max-w-full justify-start">
           <div
             data-testid="message-bot-bubble"
-            className="max-w-full space-y-2.5 rounded-[20px] bg-muted px-[18px] py-3 text-[15.5px] leading-[1.5] text-foreground/90"
+            className="max-w-full space-y-2.5 rounded-[20px] bg-muted px-[18px] py-3 text-[14px] leading-[1.5] text-foreground/90"
             dir="auto"
           >
             {visibleNarrationBlocks.map((block, i) => {
@@ -5831,7 +5926,7 @@ const MessageView = memo(function MessageView({
             <div key={i} className="flex w-fit max-w-full justify-start">
               <div
                 data-testid="message-bot-bubble"
-                className="max-w-full rounded-[20px] bg-muted px-[18px] py-3 text-[15.5px] leading-[1.5] text-foreground/90"
+                className="max-w-full rounded-[20px] bg-muted px-[18px] py-3 text-[14px] leading-[1.5] text-foreground/90"
                 dir="auto"
               >
                 <ChatMarkdown streaming>{block.text}</ChatMarkdown>
@@ -5985,7 +6080,7 @@ const MessageView = memo(function MessageView({
             <div key={i} className="flex w-fit max-w-full justify-end">
               <div
                 data-testid="message-user-bubble"
-                className="max-w-full whitespace-pre-wrap wrap-anywhere rounded-[20px] bg-chat-user px-[18px] py-3 text-[15.5px] leading-[1.45] text-chat-user-foreground"
+                className="max-w-full whitespace-pre-wrap wrap-anywhere rounded-[20px] bg-chat-user px-[18px] py-3 text-[14px] leading-[1.45] text-chat-user-foreground"
                 dir="auto"
               >
                 {block.text}
@@ -5998,7 +6093,7 @@ const MessageView = memo(function MessageView({
             <div key={i} className="flex w-fit max-w-full justify-start">
               <div
                 data-testid="message-bot-bubble"
-                className="max-w-full rounded-[20px] bg-muted px-[18px] py-3 text-[15.5px] leading-[1.5] text-foreground/90"
+                className="max-w-full rounded-[20px] bg-muted px-[18px] py-3 text-[14px] leading-[1.5] text-foreground/90"
                 dir="auto"
               >
                 <ChatMarkdown>{block.text}</ChatMarkdown>

@@ -426,7 +426,10 @@ describeJourneys("required product journeys", () => {
       notify: false,
       active: false,
     });
-    const thread = await prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const thread = await prisma.thread.findFirstOrThrow({
+      where: { botId: bot.id },
+      orderBy: { createdAt: "asc" },
+    });
     const task = await prisma.task.create({
       data: {
         spaceId: thread.spaceId,
@@ -1128,7 +1131,10 @@ describeJourneys("required product journeys", () => {
       instructions: "",
       notifyOnFinish: false,
     });
-    const dmThread = await prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const dmThread = await prisma.thread.findFirstOrThrow({
+      where: { botId: bot.id },
+      orderBy: { createdAt: "asc" },
+    });
     const group = await rpc<{ id: string; threadId: string }>(app, cookie, "groups/create", {
       name: "Schedule room",
       botIds: [bot.id, peer.id],
@@ -1243,7 +1249,10 @@ describeJourneys("required product journeys", () => {
       instructions: "",
       notifyOnFinish: false,
     });
-    const thread = await prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const thread = await prisma.thread.findFirstOrThrow({
+      where: { botId: bot.id },
+      orderBy: { createdAt: "asc" },
+    });
 
     await Promise.all(
       Array.from({ length: 40 }, (_, index) =>

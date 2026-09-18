@@ -910,12 +910,13 @@ export async function finalizeComputerControlRelease(
 
     const bot = await tx.bot.findFirst({
       where: { id: input.botId, spaceId: input.spaceId },
-      select: { thread: { select: { id: true } } },
+      select: { threads: { orderBy: { createdAt: "asc" }, take: 1, select: { id: true } } },
     });
-    if (!bot?.thread) return { threadId: null, seq: null, runId };
+    const defaultThread = bot?.threads[0];
+    if (!defaultThread) return { threadId: null, seq: null, runId };
     const event = await appendEventInTransaction(tx, {
       spaceId: input.spaceId,
-      threadId: bot.thread.id,
+      threadId: defaultThread.id,
       botId: input.botId,
       runId: runId ?? undefined,
       type: "computer.takeover.released",

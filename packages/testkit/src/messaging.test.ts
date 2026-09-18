@@ -111,7 +111,12 @@ describeMessaging("messaging surface journeys", () => {
 
     const userMessage = await prisma.message.findFirst({
       where: {
-        threadId: (await prisma.thread.findFirst({ where: { botId: identity.botId } })).id,
+        threadId: (
+          await prisma.thread.findFirst({
+            where: { botId: identity.botId },
+            orderBy: { createdAt: "asc" },
+          })
+        ).id,
         role: "user",
       },
     });
@@ -132,7 +137,10 @@ describeMessaging("messaging surface journeys", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     const identity = await findIdentity(sender);
-    const thread = await prisma.thread.findFirst({ where: { botId: identity.botId } });
+    const thread = await prisma.thread.findFirst({
+      where: { botId: identity.botId },
+      orderBy: { createdAt: "asc" },
+    });
     const userMessages = await prisma.message.findMany({
       where: { threadId: thread.id, role: "user" },
     });

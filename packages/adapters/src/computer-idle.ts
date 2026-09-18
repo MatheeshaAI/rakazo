@@ -329,13 +329,17 @@ export async function sleepComputerIfIdle(
   });
   const bots = await deps.prisma.bot.findMany({
     where: { computerId },
-    select: { id: true, thread: { select: { id: true } } },
+    select: {
+      id: true,
+      threads: { orderBy: { createdAt: "asc" }, take: 1, select: { id: true } },
+    },
   });
   for (const bot of bots) {
-    if (!bot.thread) continue;
+    const defaultThread = bot.threads[0];
+    if (!defaultThread) continue;
     await deps.events.append({
       spaceId: computer.spaceId,
-      threadId: bot.thread.id,
+      threadId: defaultThread.id,
       botId: bot.id,
       type: "computer.status",
       payload: { status: "suspended" },

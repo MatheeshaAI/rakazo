@@ -112,7 +112,10 @@ async function handleDirectEvent(
 
   let ids: ProvisionedMessagingIdentity;
   if (existing) {
-    const thread = await deps.prisma.thread.findFirst({ where: { botId: existing.botId } });
+    const thread = await deps.prisma.thread.findFirst({
+      where: { botId: existing.botId },
+      orderBy: { createdAt: "asc" },
+    });
     if (!thread) throw new Error(`messaging identity ${existing.id} has no thread`);
     ids = {
       provider: existing.provider,
@@ -601,7 +604,10 @@ async function handleChannelEvent(
       where: { id: member.identityId! },
     });
     if (!identity) continue;
-    const thread = await deps.prisma.thread.findFirst({ where: { botId: identity.botId } });
+    const thread = await deps.prisma.thread.findFirst({
+      where: { botId: identity.botId },
+      orderBy: { createdAt: "asc" },
+    });
     if (!thread) continue;
     const target = {
       spaceId: identity.spaceId,
@@ -651,7 +657,10 @@ async function inviteMember(
     ],
     skipDuplicates: true,
   });
-  const thread = await deps.prisma.thread.findFirst({ where: { botId: identity.botId } });
+  const thread = await deps.prisma.thread.findFirst({
+    where: { botId: identity.botId },
+    orderBy: { createdAt: "asc" },
+  });
   if (thread) {
     const note = await createThreadMessage(deps.prisma, {
       threadId: thread.id,

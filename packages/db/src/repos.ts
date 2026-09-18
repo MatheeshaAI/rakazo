@@ -46,7 +46,7 @@ function mapBot(
     memoryScope: string | null;
     createdAt: Date;
     updatedAt: Date;
-    thread: { id: string; unread: boolean } | null;
+    threads: Array<{ id: string; unread: boolean }>;
     computer: { scope: string } | null;
     voiceId?: string | null;
     autoSpeak?: boolean;
@@ -61,7 +61,8 @@ function mapBot(
   preview = "",
   status = "idle",
 ): Bot {
-  if (!bot.thread) {
+  const defaultThread = bot.threads[0];
+  if (!defaultThread) {
     throw new IsolationError("Bot is missing its thread");
   }
   return {
@@ -76,10 +77,10 @@ function mapBot(
     pinned: bot.pinned,
     sectionId: bot.sectionId,
     archivedAt: bot.archivedAt?.toISOString() ?? null,
-    unread: bot.thread.unread,
+    unread: defaultThread.unread,
     parentBotId: bot.parentBotId,
     memoryScope: bot.memoryScope as "isolated" | "shared" | null,
-    threadId: bot.thread.id,
+    threadId: defaultThread.id,
     preview,
     status,
     computerMode: bot.computer ? parseComputerMode(bot.computer.scope) : "team",
@@ -135,7 +136,9 @@ export function createRepos(prisma: PrismaClient) {
         pinned: true,
         sectionId: true,
         updatedAt: true,
-        thread: {
+        threads: {
+          orderBy: { createdAt: "asc" },
+          take: 1,
           select: {
             unread: true,
             messages: {
@@ -150,7 +153,8 @@ export function createRepos(prisma: PrismaClient) {
       orderBy: [{ pinned: "desc" }, { position: "asc" }, { createdAt: "asc" }],
     });
     return bots.map((bot) => {
-      if (!bot.thread) throw new IsolationError("Bot is missing its thread");
+      const defaultThread = bot.threads[0];
+      if (!defaultThread) throw new IsolationError("Bot is missing its thread");
       return {
         id: bot.id,
         spaceId: bot.spaceId,
@@ -160,8 +164,8 @@ export function createRepos(prisma: PrismaClient) {
         notifyOnFinish: bot.notifyOnFinish,
         pinned: bot.pinned,
         sectionId: bot.sectionId,
-        unread: bot.thread.unread,
-        preview: previewFromBlocks(bot.thread.messages[0]?.blocks),
+        unread: defaultThread.unread,
+        preview: previewFromBlocks(defaultThread.messages[0]?.blocks),
         status: bot.runs[0]?.status ?? "idle",
         updatedAt: bot.updatedAt.toISOString(),
       };
@@ -286,7 +290,9 @@ export function createRepos(prisma: PrismaClient) {
           archivedAt: options.archived ? { not: null } : null,
         },
         include: {
-          thread: {
+          threads: {
+            orderBy: { createdAt: "asc" },
+            take: 1,
             include: {
               messages: { orderBy: { seq: "desc" }, take: SIDEBAR_PREVIEW_MESSAGE_WINDOW },
             },
@@ -299,7 +305,7 @@ export function createRepos(prisma: PrismaClient) {
       const candidateRunIds = [
         ...new Set(
           bots.flatMap((bot) =>
-            (bot.thread?.messages ?? []).flatMap((message) =>
+            (bot.threads[0]?.messages ?? []).flatMap((message) =>
               message.runId ? [message.runId] : [],
             ),
           ),
@@ -316,7 +322,8 @@ export function createRepos(prisma: PrismaClient) {
       const checkedRunIds = new Set(candidateRunIds);
       return Promise.all(
         bots.map(async (bot) => {
-          let messages = bot.thread?.messages ?? [];
+          const defaultThread = bot.threads[0];
+          let messages = defaultThread?.messages ?? [];
           let preview = "";
           for (let attempt = 0; attempt < 5; attempt++) {
             const windowRunIds = [
@@ -339,11 +346,11 @@ export function createRepos(prisma: PrismaClient) {
               { knownPeerRunIds: peerRunIds, includeDelegatedReplyText: false },
             );
             preview = previewFromBlocks(visible[0]?.blocks);
-            if (preview || messages.length === 0 || !bot.thread || attempt === 4) break;
+            if (preview || messages.length === 0 || !defaultThread || attempt === 4) break;
             const oldest = messages[messages.length - 1];
             if (!oldest) break;
             messages = await prisma.message.findMany({
-              where: { threadId: bot.thread.id, seq: { lt: oldest.seq } },
+              where: { threadId: defaultThread.id, seq: { lt: oldest.seq } },
               orderBy: { seq: "desc" },
               take: SIDEBAR_PREVIEW_MESSAGE_WINDOW,
             });
@@ -364,7 +371,7 @@ export function createRepos(prisma: PrismaClient) {
           userId: actor.userId,
           ...(options.includeArchived ? {} : { archivedAt: null }),
         },
-        include: { thread: true, computer: true },
+        include: { threads: { orderBy: { createdAt: "asc" } }, computer: true },
       });
       if (!bot) throw new IsolationError();
       return bot;
@@ -498,7 +505,10 @@ export function createRepos(prisma: PrismaClient) {
           });
           return tx.bot.findFirstOrThrow({
             where: { id: created.id },
-            include: { thread: true, computer: true },
+            include: {
+              threads: { orderBy: { createdAt: "asc" }, take: 1 },
+              computer: true,
+            },
           });
         });
 
@@ -511,7 +521,10 @@ export function createRepos(prisma: PrismaClient) {
               spawnKey: input.spawnKey,
             },
           },
-          include: { thread: true, computer: true },
+          include: {
+            threads: { orderBy: { createdAt: "asc" }, take: 1 },
+            computer: true,
+          },
         });
       };
 
@@ -542,6 +555,51 @@ export function createRepos(prisma: PrismaClient) {
         }
       }
       return mapBot(bot);
+    },
+
+    /** Starts a new, separate conversation under an existing bot ("New Chat"). */
+    async createBotThread(actor: Actor, botId: string): Promise<{ id: string }> {
+      return prisma.$transaction(async (tx) => {
+        const bot = await tx.bot.findFirst({
+          where: {
+            id: botId,
+            spaceId: actor.spaceId,
+            userId: actor.userId,
+            archivedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!bot) throw new IsolationError();
+        return tx.thread.create({
+          data: {
+            spaceId: actor.spaceId,
+            botId: bot.id,
+            userId: actor.userId,
+          },
+          select: { id: true },
+        });
+      });
+    },
+
+    async listBotThreads(
+      actor: Actor,
+      botId: string,
+    ): Promise<Array<{ id: string; createdAt: string; unread: boolean }>> {
+      const bot = await prisma.bot.findFirst({
+        where: { id: botId, spaceId: actor.spaceId, userId: actor.userId },
+        select: { id: true },
+      });
+      if (!bot) throw new IsolationError();
+      const threads = await prisma.thread.findMany({
+        where: { botId: bot.id },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, createdAt: true, unread: true },
+      });
+      return threads.map((thread) => ({
+        id: thread.id,
+        createdAt: thread.createdAt.toISOString(),
+        unread: thread.unread,
+      }));
     },
 
     async reorderBots(actor: Actor, botIds: string[]): Promise<void> {
@@ -581,7 +639,10 @@ export function createRepos(prisma: PrismaClient) {
       const updated = await prisma.bot.update({
         where: { id: botId },
         data: { computerId: computer.id },
-        include: { thread: true, computer: true },
+        include: {
+          threads: { orderBy: { createdAt: "asc" }, take: 1 },
+          computer: true,
+        },
       });
       return mapBot(updated);
     },

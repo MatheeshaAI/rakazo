@@ -928,9 +928,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
       if (await deferFutureRoutine(deps.jobs, routineId, scheduledAt)) return;
       const bot = await deps.prisma.bot.findUnique({
         where: { id: routine.botId },
-        include: { thread: true },
+        include: { threads: { orderBy: { createdAt: "asc" }, take: 1 } },
       });
-      if (!bot?.thread) return;
+      const defaultThread = bot?.threads[0];
+      if (!defaultThread) return;
       const targetThread = routine.threadId
         ? await deps.prisma.thread.findFirst({
             where: {
@@ -949,7 +950,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             select: { id: true },
           })
         : null;
-      const thread = targetThread ?? bot.thread;
+      const thread = targetThread ?? defaultThread;
       // A schedule with no valid parseable cron among its crons (e.g. a
       // legacy row accepted before cron validation was added) fires the
       // already-due run once, then nextRunAt stays null and the routine

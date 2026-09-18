@@ -355,17 +355,24 @@ async function lockAndLoadGroupMembers(
 export async function resolveThreadTarget(
   prisma: PrismaClient,
   actor: Actor,
-  input: { botId?: string; groupId?: string },
+  input: { botId?: string; groupId?: string; threadId?: string },
 ): Promise<ThreadTarget> {
   const repos = createRepos(prisma);
   const groupRepos = createGroupRepos(prisma);
   if (input.botId) {
     const bot = await repos.getBot(actor, input.botId);
-    if (!bot.thread) throw new IsolationError();
+    // bot.threads is ordered oldest-first; the oldest is the bot's default/
+    // canonical thread (also what external channels like WhatsApp/email route
+    // to). An explicit threadId must belong to this bot, or it's rejected the
+    // same way an unowned botId/groupId would be.
+    const thread = input.threadId
+      ? bot.threads.find((candidate) => candidate.id === input.threadId)
+      : bot.threads[0];
+    if (!thread) throw new IsolationError();
     return {
       kind: "bot",
       botId: bot.id,
-      threadId: bot.thread.id,
+      threadId: thread.id,
       bot,
     };
   }

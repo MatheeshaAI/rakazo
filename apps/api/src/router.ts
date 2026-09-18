@@ -1629,6 +1629,13 @@ export function createRouter(deps: RouterDeps) {
         await setThreadUnreadState(deps.prisma, context.actor, target, true);
         return { ok: true as const };
       }),
+      listForBot: authed.threads.listForBot.handler(async ({ context, input }) =>
+        repos.listBotThreads(context.actor, input.botId),
+      ),
+      createForBot: authed.threads.createForBot.handler(async ({ context, input }) => {
+        const thread = await repos.createBotThread(context.actor, input.botId);
+        return { threadId: thread.id };
+      }),
     },
     computer: {
       status: authed.computer.status.handler(async ({ context, input }) =>
@@ -1848,7 +1855,7 @@ export function createRouter(deps: RouterDeps) {
         if (hasActiveComputerControl(bot.computer) && bot.computer.controlBotId === bot.id) {
           await bindWaitingTakeoverToControl(deps, {
             spaceId: context.actor.spaceId,
-            threadId: bot.thread?.id,
+            threadId: bot.threads[0]?.id,
             botId: bot.id,
             computerId: bot.computer.id,
             controlLeaseId: bot.computer.controlLeaseId!,
@@ -1946,7 +1953,7 @@ export function createRouter(deps: RouterDeps) {
           }
           await bindWaitingTakeoverToControl(deps, {
             spaceId: context.actor.spaceId,
-            threadId: bot.thread?.id,
+            threadId: bot.threads[0]?.id,
             botId: bot.id,
             computerId: current.id,
             controlLeaseId: current.controlLeaseId!,
@@ -1978,10 +1985,10 @@ export function createRouter(deps: RouterDeps) {
           });
           throw error;
         }
-        if (bot.thread) {
+        if (bot.threads[0]) {
           await deps.events.append({
             spaceId: context.actor.spaceId,
-            threadId: bot.thread.id,
+            threadId: bot.threads[0].id,
             botId: bot.id,
             type: "computer.takeover.granted",
             payload: { leaseId, takeoverRequested: waitingForTakeover },
@@ -2340,10 +2347,10 @@ export function createRouter(deps: RouterDeps) {
             nextRunAt,
           },
         });
-        if (bot.thread) {
+        if (bot.threads[0]) {
           await deps.events.append({
             spaceId: context.actor.spaceId,
-            threadId: bot.thread.id,
+            threadId: bot.threads[0].id,
             botId: bot.id,
             type: "routine.created",
             payload: { name: row.name },
@@ -2445,10 +2452,10 @@ export function createRouter(deps: RouterDeps) {
           },
         });
         const bot = await repos.getBot(context.actor, row.botId);
-        if (bot.thread) {
+        if (bot.threads[0]) {
           await deps.events.append({
             spaceId: context.actor.spaceId,
-            threadId: bot.thread.id,
+            threadId: bot.threads[0].id,
             botId: bot.id,
             type: "routine.updated",
             payload: { routineId: row.id, active: row.active },
@@ -2486,8 +2493,8 @@ export function createRouter(deps: RouterDeps) {
         });
         if (!routine) throw new IsolationError();
         const bot = await repos.getBot(context.actor, routine.botId);
-        if (!bot.thread) throw new IsolationError();
-        const threadId = bot.thread.id;
+        if (!bot.threads[0]) throw new IsolationError();
+        const threadId = bot.threads[0].id;
         const nonce = input.clientNonce ? `routine-test:${input.clientNonce}` : undefined;
         if (nonce) {
           const existing = await deps.prisma.run.findFirst({
@@ -4507,7 +4514,7 @@ export function createRouter(deps: RouterDeps) {
     export: {
       bot: authed.export.bot.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
-        if (!bot.thread || !bot.computer) throw new IsolationError();
+        if (!bot.threads[0] || !bot.computer) throw new IsolationError();
         const homeKey = bot.computer.homeKey;
         const exportContext = {
           operationId: "export",
@@ -4533,7 +4540,7 @@ export function createRouter(deps: RouterDeps) {
             }
             return exported;
           })(),
-          loadAllMessages(deps.prisma, bot.thread.id, EXPORT_MESSAGE_PAGE_SIZE),
+          loadAllMessages(deps.prisma, bot.threads[0].id, EXPORT_MESSAGE_PAGE_SIZE),
         ]);
         return {
           version: 1 as const,

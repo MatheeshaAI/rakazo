@@ -82,7 +82,7 @@ describe("spawned bot creation", () => {
           spawnKey: "tool-call-1",
         },
       },
-      include: { thread: true },
+      include: { threads: { orderBy: { createdAt: "asc" }, take: 1 } },
     });
     expect(result).toEqual({
       ok: true,

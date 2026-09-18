@@ -91,6 +91,8 @@ const threadTarget = z
   .object({
     botId: Id.optional(),
     groupId: Id.optional(),
+    /** Picks one of a bot's several conversations; ignored/invalid for groups, which stay 1:1 with a thread. */
+    threadId: Id.optional(),
   })
   .superRefine((input, ctx) => {
     const hasBot = Boolean(input.botId);
@@ -100,6 +102,13 @@ const threadTarget = z
         code: "custom",
         message: "Provide exactly one of botId or groupId",
         path: ["botId"],
+      });
+    }
+    if (input.threadId && !hasBot) {
+      ctx.addIssue({
+        code: "custom",
+        message: "threadId requires botId",
+        path: ["threadId"],
       });
     }
   });
@@ -334,6 +343,16 @@ export const appContract = {
       .output(z.object({ ok: z.literal(true) })),
     markRead: oc.input(threadTarget).output(z.object({ ok: z.literal(true) })),
     markUnread: oc.input(threadTarget).output(z.object({ ok: z.literal(true) })),
+    listForBot: oc.input(botId).output(
+      z.array(
+        z.object({
+          id: Id,
+          createdAt: z.string(),
+          unread: z.boolean(),
+        }),
+      ),
+    ),
+    createForBot: oc.input(botId).output(z.object({ threadId: Id })),
   },
   computer: {
     status: oc.input(botId).output(ComputerStatusSchema),
